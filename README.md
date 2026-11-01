@@ -4,7 +4,7 @@ Personal portfolio of **Muhammad Danish Meraj**, AI Automation Engineer and CS s
 
 Plain HTML, CSS and JavaScript with no build step. Highlights:
 
-- Interactive neural-network background and text-scramble hero
+- Editorial, print-style layout with light and dark themes
 - Live **NER demo** (rules + gazetteer version of my competition-winning ner-pk system)
 - Animated **Kruskal + Union-Find** run from my Smart EV Charging algorithms project
 - A hidden terminal: press <kbd>`</kbd> anywhere on the page
