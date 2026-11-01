@@ -12,8 +12,168 @@
     const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
     root.dataset.theme = dark ? 'light' : 'dark';
     try { localStorage.setItem('theme', root.dataset.theme); } catch (e) {}
-    draw();
+    draw(); buildPortrait(false);
   });
+
+
+  /* ---------- shared pointer ---------- */
+  const ptr = { x: -9999, y: -9999, active: false };
+  addEventListener('pointermove', e => { ptr.x = e.clientX; ptr.y = e.clientY; ptr.active = true; }, { passive: true });
+  document.addEventListener('mouseleave', () => { ptr.active = false; ptr.x = ptr.y = -9999; });
+  const isDark = () => css('--paper').startsWith('#1');
+
+  /* ---------- background network: dots and lines that follow the cursor ---------- */
+  const net = $('#net'), nx = net.getContext('2d');
+  let NW = 0, NH = 0, dots = [];
+  function sizeNet() {
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    NW = innerWidth; NH = innerHeight;
+    net.width = NW * dpr; net.height = NH * dpr; nx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const n = Math.round(Math.min(90, Math.max(28, NW * NH / 16000)));
+    dots = Array.from({ length: n }, () => ({
+      x: Math.random() * NW, y: Math.random() * NH,
+      vx: (Math.random() - .5) * .3, vy: (Math.random() - .5) * .3
+    }));
+  }
+  function netFrame() {
+    nx.clearRect(0, 0, NW, NH);
+    const ink = css('--ink'), accent = css('--accent');
+    const LINK = 120, REACH = 180;
+    for (const d of dots) {
+      d.x += d.vx; d.y += d.vy;
+      if (d.x < 0 || d.x > NW) d.vx *= -1;
+      if (d.y < 0 || d.y > NH) d.vy *= -1;
+      const dx = ptr.x - d.x, dy = ptr.y - d.y, dist = Math.hypot(dx, dy);
+      if (dist < REACH && dist > 1) { d.x += dx / dist * .35; d.y += dy / dist * .35; } // drift toward the cursor
+    }
+    nx.lineWidth = .6;
+    for (let i = 0; i < dots.length; i++) {
+      const a = dots[i];
+      for (let j = i + 1; j < dots.length; j++) {
+        const b = dots[j], d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (d < LINK) {
+          nx.globalAlpha = (1 - d / LINK) * .22; nx.strokeStyle = ink;
+          nx.beginPath(); nx.moveTo(a.x, a.y); nx.lineTo(b.x, b.y); nx.stroke();
+        }
+      }
+      const md = Math.hypot(a.x - ptr.x, a.y - ptr.y);
+      if (md < REACH) {
+        nx.globalAlpha = (1 - md / REACH) * .7; nx.strokeStyle = accent;
+        nx.beginPath(); nx.moveTo(a.x, a.y); nx.lineTo(ptr.x, ptr.y); nx.stroke();
+      }
+      nx.globalAlpha = md < REACH ? .9 : .45; nx.fillStyle = md < REACH ? accent : ink;
+      nx.beginPath(); nx.arc(a.x, a.y, 1.6, 0, 7); nx.fill();
+    }
+    nx.globalAlpha = 1;
+    if (!reduce && !document.hidden) requestAnimationFrame(netFrame);
+  }
+  sizeNet(); netFrame();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && !reduce) requestAnimationFrame(netFrame); });
+
+  /* ---------- hero portrait: halftone of ink dots that part around the cursor ---------- */
+  const pc = $('#portrait'), px = pc.getContext('2d');
+  let PW = 0, PH = 0, parts = [], src = null, portraitOn = false, heroVisible = true;
+  const photo = new Image();
+  photo.onload = () => { src = photo; buildPortrait(true); };
+  photo.onerror = () => { src = null; buildPortrait(true); };
+  photo.src = 'assets/me.jpg';
+
+  function sampleSource(cols, rows) {
+    const oc = document.createElement('canvas'); oc.width = cols; oc.height = rows;
+    const o = oc.getContext('2d', { willReadFrequently: true });
+    if (src) {
+      // cover-fit, framed on the head and shoulders
+      const s = Math.max(cols / src.width, rows / src.height) * 1.08;
+      const w = src.width * s, h = src.height * s;
+      o.drawImage(src, (cols - w) * .55, (rows - h) * .18, w, h);
+    } else {
+      o.fillStyle = '#fff'; o.fillRect(0, 0, cols, rows);
+      o.fillStyle = '#000'; o.textAlign = 'center'; o.textBaseline = 'middle';
+      o.font = `italic ${Math.round(rows * .62)}px "Instrument Serif", Georgia, serif`;
+      o.fillText('DM', cols * .56, rows * .5);
+    }
+    return o.getImageData(0, 0, cols, rows).data;
+  }
+  function buildPortrait(intro) {
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    const r = pc.getBoundingClientRect();
+    PW = r.width; PH = r.height;
+    if (!PW || !PH) return;
+    pc.width = PW * dpr; pc.height = PH * dpr; px.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const step = PW < 500 ? 6 : 7;
+    const cols = Math.floor(PW / step), rows = Math.floor(PH / step);
+    const data = sampleSource(cols, rows);
+    // background key: the median corner colour is treated as the backdrop and dropped
+    const at = (x, y) => (y * cols + x) * 4;
+    const corners = [at(1, 1), at(cols - 2, 1), at(1, rows - 2), at(cols - 2, rows - 2)].map(i => [data[i], data[i + 1], data[i + 2]]);
+    const bg = [0, 1, 2].map(c => corners.map(p => p[c]).sort((a, b) => a - b)[1]);
+    const dark = isDark();
+    parts = [];
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+      const i = at(x, y), R = data[i], G = data[i + 1], B = data[i + 2];
+      const lum = (R * .299 + G * .587 + B * .114) / 255;
+      if (src && Math.hypot(R - bg[0], G - bg[1], B - bg[2]) < 34) continue;
+      const tone = src && dark ? lum : 1 - lum;       // light ink on dark paper prints the photo's highlights
+      const rad = Math.max(src ? step * .17 : 0, Math.pow(tone, 1.15) * step * .62); // keep the silhouette readable
+      if (rad < .55) continue;
+      const hx = x * step + step / 2, hy = y * step + step / 2;
+      const p = { hx, hy, r: rad, vx: 0, vy: 0, x: hx, y: hy };
+      if (intro && !reduce) {
+        const a = Math.random() * Math.PI * 2, d = 200 + Math.random() * 500;
+        p.x = hx + Math.cos(a) * d; p.y = hy + Math.sin(a) * d;
+      }
+      parts.push(p);
+    }
+    $('#artCap').textContent = `Fig. 1 — ${src ? 'Portrait' : 'Monogram'} in ${parts.length.toLocaleString()} ink dots. Move your cursor through it.`;
+    kickPortrait(true);
+  }
+  function kickPortrait(force) {
+    if ((!portraitOn || force) && heroVisible) { portraitOn = true; requestAnimationFrame(portraitFrame); }
+  }
+  new IntersectionObserver(es => { heroVisible = es[0].isIntersecting; kickPortrait(); }).observe(pc);
+  let lastFrame = 0;
+  function portraitFrame(t) {
+    if (t === lastFrame) return; lastFrame = t;   // ignore duplicate loops
+    if (!heroVisible) { portraitOn = false; return; }
+    const r = pc.getBoundingClientRect();
+    const mx = ptr.x - r.left, my = ptr.y - r.top;
+    const near = ptr.active && mx > -60 && my > -60 && mx < PW + 60 && my < PH + 60;
+    const RAD = PW < 500 ? 70 : 95;
+    let moving = 0;
+    const accent = css('--accent');
+    px.clearRect(0, 0, PW, PH);
+    px.fillStyle = css('--ink');
+    px.beginPath();
+    const linked = [];
+    for (const p of parts) {
+      if (near) {
+        const dx = p.x - mx, dy = p.y - my, d = Math.hypot(dx, dy);
+        if (d < RAD && d > .1) {
+          const f = (1 - d / RAD) * 2.4;
+          p.vx += dx / d * f; p.vy += dy / d * f;
+          if (d < RAD * .9 && linked.length < 40 && Math.random() < .5) linked.push(p);
+        }
+      }
+      p.vx += (p.hx - p.x) * .06; p.vy += (p.hy - p.y) * .06;
+      p.vx *= .8; p.vy *= .8;
+      p.x += p.vx; p.y += p.vy;
+      if (Math.abs(p.vx) + Math.abs(p.vy) > .05) moving++;
+      px.moveTo(p.x + p.r, p.y); px.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    }
+    px.fill();
+    if (near && linked.length) {
+      px.strokeStyle = accent; px.lineWidth = .7; px.globalAlpha = .55;
+      px.beginPath();
+      for (const p of linked) { px.moveTo(p.x, p.y); px.lineTo(mx, my); }
+      px.stroke(); px.globalAlpha = 1;
+      px.fillStyle = accent; px.beginPath(); px.arc(mx, my, 2.5, 0, 7); px.fill();
+    }
+    if ((near || moving) && !reduce) requestAnimationFrame(portraitFrame); else portraitOn = false;
+  }
+  pc.addEventListener('pointermove', () => kickPortrait());
+  let rT;
+  addEventListener('resize', () => { clearTimeout(rT); rT = setTimeout(() => { sizeNet(); buildPortrait(false); }, 150); });
+  document.fonts?.ready.then(() => { if (!src && photo.complete) buildPortrait(false); });
 
   /* ---------- reveal + active nav ---------- */
   const io = new IntersectionObserver(es => es.forEach(e => {

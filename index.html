@@ -16,6 +16,7 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<canvas id="net" aria-hidden="true"></canvas>
 
 <header class="masthead">
   <a href="#top" class="mark">D. Meraj</a>
@@ -35,17 +36,23 @@
 <main id="top">
 
 <!-- HERO -->
-<section class="hero wrap">
-  <p class="kicker mono">Portfolio — Vol. 2026 · Karachi, Pakistan</p>
-  <h1>Muhammad<br>Danish <em>Meraj</em></h1>
-  <div class="hero-grid">
-    <div class="hero-copy">
-      <p class="lede">I build AI automations that do real work: LLMs wired into business workflows, n8n pipelines that remove manual steps, and models trained well enough to win.</p>
-      <div class="actions">
-        <a class="btn" href="#projects">Selected work ↓</a>
-        <a class="btn line" href="assets/Muhammad-Danish-Meraj-Resume.pdf" target="_blank" rel="noopener">Résumé (PDF)</a>
-      </div>
+<section class="hero">
+  <div class="hero-text">
+    <p class="kicker mono">Portfolio — Vol. 2026 · Karachi, Pakistan</p>
+    <h1>Muhammad<br>Danish <em>Meraj</em></h1>
+    <p class="lede">I build AI automations that do real work: LLMs wired into business workflows, n8n pipelines that remove manual steps, and models trained well enough to win.</p>
+    <div class="actions">
+      <a class="btn" href="#projects">Selected work ↓</a>
+      <a class="btn line" href="assets/Muhammad-Danish-Meraj-Resume.pdf" target="_blank" rel="noopener">Résumé (PDF)</a>
     </div>
+  </div>
+  <figure class="hero-art" aria-label="Halftone portrait of Muhammad Danish Meraj">
+    <canvas id="portrait"></canvas>
+    <figcaption class="mono" id="artCap">Fig. 1 — Portrait in ink dots. Move your cursor through it.</figcaption>
+  </figure>
+</section>
+
+<section class="wrap" aria-label="At a glance">
     <dl class="spec">
       <div><dt>Role</dt><dd>Developer &amp; Automation Engineer, Techoid</dd></div>
       <div><dt>Study</dt><dd>BS Computer Science &amp; IT, NED University</dd></div>
@@ -53,11 +60,6 @@
       <div><dt>Recognition</dt><dd><a href="#awards">Winner, Dory's Data Dive — AI Odyssey 2026</a></dd></div>
       <div><dt>Elsewhere</dt><dd><a href="https://github.com/M-Danish-Meraj" target="_blank" rel="noopener">GitHub</a> · <a href="https://linkedin.com/in/muhammad-danish-meraj-52318332b" target="_blank" rel="noopener">LinkedIn</a> · <a href="https://leetcode.com/u/Rt3rGwIXYo/" target="_blank" rel="noopener">LeetCode</a></dd></div>
     </dl>
-    <figure class="portrait">
-      <div class="frame"><span class="initials">DM</span><img src="assets/me.jpg" alt="Muhammad Danish Meraj" onerror="this.remove()"></div>
-      <figcaption class="mono">Fig. 1 — The author</figcaption>
-    </figure>
-  </div>
 </section>
 
 <!-- NUMBERS -->
