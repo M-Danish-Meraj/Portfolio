@@ -233,3 +233,26 @@ kbd { font: 12px var(--mono); border: 1px solid var(--rule); padding: 0 5px; }
 }
 .panel-head { gap: 12px; }
 .panel-head span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* PROFILE LINKS */
+.social { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0 0; padding: 0; }
+.social a {
+  display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px 7px 10px; text-decoration: none;
+  border: 1px solid var(--rule); font-size: 13px; color: var(--ink-2); background: var(--paper);
+}
+.social a:hover { border-color: var(--accent); color: var(--accent); }
+.social svg { width: 15px; height: 15px; fill: currentColor; }
+
+/* CONTACT */
+.mail {
+  display: inline-block; margin-top: 18px; white-space: nowrap; text-decoration: none; color: var(--accent);
+  font: 400 clamp(20px, 4.4vw, 52px)/1.1 var(--serif); letter-spacing: -.01em;
+  border-bottom: 1px solid var(--accent); max-width: 100%;
+}
+.mail:hover { color: var(--ink); border-color: var(--ink); }
+.contact-links { list-style: none; margin: 40px 0 0; padding: 0; border-top: 1px solid var(--ink); font-size: 13px; }
+.contact-links li { display: grid; grid-template-columns: 110px 1fr; gap: 16px; padding: 11px 0; border-bottom: 1px solid var(--rule); }
+.contact-links span { color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: .06em; padding-top: 2px; }
+.contact-links a { color: var(--ink); overflow-wrap: anywhere; }
+.contact-links a:hover { color: var(--accent); }
+@media (max-width: 680px) { .contact-links li { grid-template-columns: 1fr; gap: 2px; } }

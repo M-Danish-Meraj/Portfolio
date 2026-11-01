@@ -70,22 +70,26 @@
   sizeNet(); netFrame();
   document.addEventListener('visibilitychange', () => { if (!document.hidden && !reduce) requestAnimationFrame(netFrame); });
 
-  /* ---------- hero portrait: halftone of ink dots that part around the cursor ---------- */
+  /* ---------- hero portrait: ink dots fly in, settle into the photo, scatter under the cursor ---------- */
   const pc = $('#portrait'), px = pc.getContext('2d');
   let PW = 0, PH = 0, parts = [], src = null, portraitOn = false, heroVisible = true;
+  let photoLayer = null, photoA = 0, quietSince = 0, lastFrame = 0;
   const photo = new Image();
   photo.onload = () => { src = photo; buildPortrait(true); };
   photo.onerror = () => { src = null; buildPortrait(true); };
   photo.src = 'assets/me.jpg';
 
+  // where the photo sits inside a w x h box: cover-fit, framed on head and shoulders
+  function placePhoto(w, h) {
+    const s = Math.max(w / src.width, h / src.height) * 1.04;
+    return { x: (w - src.width * s) * .55, y: (h - src.height * s) * .12, w: src.width * s, h: src.height * s };
+  }
   function sampleSource(cols, rows) {
     const oc = document.createElement('canvas'); oc.width = cols; oc.height = rows;
     const o = oc.getContext('2d', { willReadFrequently: true });
     if (src) {
-      // cover-fit, framed on the head and shoulders
-      const s = Math.max(cols / src.width, rows / src.height) * 1.08;
-      const w = src.width * s, h = src.height * s;
-      o.drawImage(src, (cols - w) * .55, (rows - h) * .18, w, h);
+      const p = placePhoto(cols, rows);
+      o.drawImage(src, p.x, p.y, p.w, p.h);
     } else {
       o.fillStyle = '#fff'; o.fillRect(0, 0, cols, rows);
       o.fillStyle = '#000'; o.textAlign = 'center'; o.textBaseline = 'middle';
@@ -103,47 +107,127 @@
     const step = PW < 500 ? 6 : 7;
     const cols = Math.floor(PW / step), rows = Math.floor(PH / step);
     const data = sampleSource(cols, rows);
-    // background key: the median corner colour is treated as the backdrop and dropped
     const at = (x, y) => (y * cols + x) * 4;
-    const corners = [at(1, 1), at(cols - 2, 1), at(1, rows - 2), at(cols - 2, rows - 2)].map(i => [data[i], data[i + 1], data[i + 2]]);
-    const bg = [0, 1, 2].map(c => corners.map(p => p[c]).sort((a, b) => a - b)[1]);
+    const keep = src ? subjectMask(data, cols, rows) : null;
     const dark = isDark();
+    const mask = src ? new Uint8ClampedArray(cols * rows * 4) : null;
     parts = [];
     for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
       const i = at(x, y), R = data[i], G = data[i + 1], B = data[i + 2];
       const lum = (R * .299 + G * .587 + B * .114) / 255;
-      if (src && Math.hypot(R - bg[0], G - bg[1], B - bg[2]) < 34) continue;
+      if (src) {
+        if (!keep[y * cols + x]) continue;
+        mask[i] = mask[i + 1] = mask[i + 2] = mask[i + 3] = 255;
+      }
       const tone = src && dark ? lum : 1 - lum;       // light ink on dark paper prints the photo's highlights
       const rad = Math.max(src ? step * .17 : 0, Math.pow(tone, 1.15) * step * .62); // keep the silhouette readable
       if (rad < .55) continue;
       const hx = x * step + step / 2, hy = y * step + step / 2;
       const p = { hx, hy, r: rad, vx: 0, vy: 0, x: hx, y: hy };
       if (intro && !reduce) {
-        const a = Math.random() * Math.PI * 2, d = 200 + Math.random() * 500;
+        const a = Math.random() * Math.PI * 2, d = 220 + Math.random() * 520;
         p.x = hx + Math.cos(a) * d; p.y = hy + Math.sin(a) * d;
       }
       parts.push(p);
     }
-    $('#artCap').textContent = `Fig. 1 — ${src ? 'Portrait' : 'Monogram'} in ${parts.length.toLocaleString()} ink dots. Move your cursor through it.`;
+    photoLayer = src ? makePhotoLayer(mask, cols, rows, step, dpr) : null;
+    if (intro) photoA = 0;
+    quietSince = 0;
+    $('#artCap').textContent = src
+      ? `Fig. 1 — ${parts.length.toLocaleString()} ink dots settle into a portrait. Hover to scatter them.`
+      : `Fig. 1 — Monogram in ${parts.length.toLocaleString()} ink dots. Move your cursor through it.`;
+    if (reduce) { photoA = src ? 1 : 0; for (const p of parts) { p.x = p.hx; p.y = p.hy; } }
     kickPortrait(true);
+  }
+  // Separates the subject from a plain studio backdrop. The backdrop's brightness is modelled as a smooth
+  // quadratic surface fitted to the border cells (which handles a vignette); cells that differ from it, or are
+  // clearly coloured, are subject. Then only the biggest connected shape is kept and its holes are filled.
+  function subjectMask(data, cols, rows) {
+    const n = cols * rows, lum = new Float32Array(n), sat = new Float32Array(n);
+    for (let k = 0; k < n; k++) {
+      const R = data[k * 4], G = data[k * 4 + 1], B = data[k * 4 + 2];
+      lum[k] = R * .299 + G * .587 + B * .114;
+      const mx = Math.max(R, G, B), mn = Math.min(R, G, B);
+      sat[k] = mx ? (mx - mn) / mx : 0;
+    }
+    const feat = (x, y) => { const u = x / cols - .5, v = y / rows - .5; return [1, u, v, u * u, v * v, u * v]; };
+    const A = Array.from({ length: 6 }, () => new Float64Array(7));
+    const band = Math.max(2, Math.round(cols * .06));
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+      if (!(x < band || x >= cols - band || y < band)) continue;
+      const f = feat(x, y), z = lum[y * cols + x];
+      for (let a = 0; a < 6; a++) { for (let b = 0; b < 6; b++) A[a][b] += f[a] * f[b]; A[a][6] += f[a] * z; }
+    }
+    for (let c = 0; c < 6; c++) {                       // Gaussian elimination
+      let p = c; for (let r = c + 1; r < 6; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+      [A[c], A[p]] = [A[p], A[c]];
+      for (let r = 0; r < 6; r++) if (r !== c) { const m = A[r][c] / A[c][c]; for (let k = c; k < 7; k++) A[r][k] -= m * A[c][k]; }
+    }
+    const coef = A.map((row, i) => row[6] / row[i]);
+    const isSub = new Uint8Array(n);
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+      const k = y * cols + x, f = feat(x, y);
+      const model = f.reduce((s, v, i) => s + v * coef[i], 0);
+      isSub[k] = Math.abs(lum[k] - model) > 20 || sat[k] > .2 ? 1 : 0;
+    }
+    // largest connected subject component
+    const comp = new Int32Array(n).fill(-1); let best = -1, bestSize = 0, id = 0;
+    for (let s = 0; s < n; s++) {
+      if (!isSub[s] || comp[s] >= 0) continue;
+      let size = 0; const stack = [s]; comp[s] = id;
+      while (stack.length) {
+        const k = stack.pop(); size++;
+        const x = k % cols, y = (k / cols) | 0;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= cols || Y >= rows) continue;
+          const q = Y * cols + X; if (isSub[q] && comp[q] < 0) { comp[q] = id; stack.push(q); }
+        }
+      }
+      if (size > bestSize) { bestSize = size; best = id; }
+      id++;
+    }
+    // backdrop = everything reachable from the top/left/right border without crossing the subject
+    const keep = new Uint8Array(n).fill(1), seen = new Uint8Array(n), stack = [];
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++)
+      if ((x === 0 || x === cols - 1 || y === 0) && comp[y * cols + x] !== best) { seen[y * cols + x] = 1; stack.push(y * cols + x); }
+    while (stack.length) {
+      const k = stack.pop(); keep[k] = 0;
+      const x = k % cols, y = (k / cols) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= cols || Y >= rows) continue;
+        const q = Y * cols + X; if (!seen[q] && comp[q] !== best) { seen[q] = 1; stack.push(q); }
+      }
+    }
+    return keep;
+  }
+  // the real photo, in black and white, cut out with the dot mask and feathered at the edges
+  function makePhotoLayer(mask, cols, rows, step, dpr) {
+    const layer = document.createElement('canvas'); layer.width = PW * dpr; layer.height = PH * dpr;
+    const l = layer.getContext('2d'); l.scale(dpr, dpr);
+    const p = placePhoto(cols * step, rows * step);
+    l.filter = isDark() ? 'grayscale(1) contrast(1.12) brightness(1.05)' : 'grayscale(1) contrast(1.1)';
+    l.drawImage(src, p.x, p.y, p.w, p.h);
+    const mc = document.createElement('canvas'); mc.width = cols; mc.height = rows;
+    mc.getContext('2d').putImageData(new ImageData(mask, cols, rows), 0, 0);
+    l.globalCompositeOperation = 'destination-in';
+    l.filter = `blur(${step * .5}px)`;
+    l.imageSmoothingEnabled = true;
+    l.drawImage(mc, 0, 0, cols * step, rows * step);
+    l.drawImage(mc, 0, 0, cols * step, rows * step); // second pass firms up the inside of the mask
+    return layer;
   }
   function kickPortrait(force) {
     if ((!portraitOn || force) && heroVisible) { portraitOn = true; requestAnimationFrame(portraitFrame); }
   }
   new IntersectionObserver(es => { heroVisible = es[0].isIntersecting; kickPortrait(); }).observe(pc);
-  let lastFrame = 0;
   function portraitFrame(t) {
     if (t === lastFrame) return; lastFrame = t;   // ignore duplicate loops
     if (!heroVisible) { portraitOn = false; return; }
     const r = pc.getBoundingClientRect();
     const mx = ptr.x - r.left, my = ptr.y - r.top;
-    const near = ptr.active && mx > -60 && my > -60 && mx < PW + 60 && my < PH + 60;
+    const near = ptr.active && mx > -40 && my > -40 && mx < PW + 40 && my < PH + 40;
     const RAD = PW < 500 ? 70 : 95;
     let moving = 0;
-    const accent = css('--accent');
-    px.clearRect(0, 0, PW, PH);
-    px.fillStyle = css('--ink');
-    px.beginPath();
     const linked = [];
     for (const p of parts) {
       if (near) {
@@ -157,20 +241,41 @@
       p.vx += (p.hx - p.x) * .06; p.vy += (p.hy - p.y) * .06;
       p.vx *= .8; p.vy *= .8;
       p.x += p.vx; p.y += p.vy;
-      if (Math.abs(p.vx) + Math.abs(p.vy) > .05) moving++;
-      px.moveTo(p.x + p.r, p.y); px.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      if (Math.abs(p.vx) + Math.abs(p.vy) > .08) moving++;
     }
-    px.fill();
+    // once every dot is home and the cursor is away, the photo develops; hovering dissolves it back to dots
+    const quiet = !near && moving < 4;
+    if (!quiet) quietSince = 0; else if (!quietSince) quietSince = t;
+    const want = src && quiet && t - quietSince > 250 ? 1 : 0;
+    photoA += (want - photoA) * (want ? .045 : .2);
+    if (Math.abs(want - photoA) < .004) photoA = want;
+
+    px.clearRect(0, 0, PW, PH);
+    if (photoA < 1) {
+      px.globalAlpha = 1 - photoA * .92;
+      px.fillStyle = css('--ink');
+      px.beginPath();
+      for (const p of parts) { px.moveTo(p.x + p.r, p.y); px.arc(p.x, p.y, p.r, 0, Math.PI * 2); }
+      px.fill();
+    }
+    if (photoLayer && photoA > 0) {
+      px.globalAlpha = photoA;
+      px.drawImage(photoLayer, 0, 0, PW, PH);
+    }
+    px.globalAlpha = 1;
     if (near && linked.length) {
+      const accent = css('--accent');
       px.strokeStyle = accent; px.lineWidth = .7; px.globalAlpha = .55;
       px.beginPath();
       for (const p of linked) { px.moveTo(p.x, p.y); px.lineTo(mx, my); }
       px.stroke(); px.globalAlpha = 1;
       px.fillStyle = accent; px.beginPath(); px.arc(mx, my, 2.5, 0, 7); px.fill();
     }
-    if ((near || moving) && !reduce) requestAnimationFrame(portraitFrame); else portraitOn = false;
+    const keepGoing = near || moving || photoA !== want || (src && quiet && want === 0);
+    if (keepGoing && !reduce) requestAnimationFrame(portraitFrame); else portraitOn = false;
   }
   pc.addEventListener('pointermove', () => kickPortrait());
+  addEventListener('pointerup', e => { if (e.pointerType !== 'mouse') { ptr.active = false; ptr.x = ptr.y = -9999; kickPortrait(); } });
   let rT;
   addEventListener('resize', () => { clearTimeout(rT); rT = setTimeout(() => { sizeNet(); buildPortrait(false); }, 150); });
   document.fonts?.ready.then(() => { if (!src && photo.complete) buildPortrait(false); });
